@@ -1,0 +1,76 @@
+version: "3"
+services:
+  autoheal:
+    restart: always
+    image: willfarrell/autoheal
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=all
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  mongodb:
+    image: "mongo:latest"
+  rabbitmq:
+    image: "rabbitmq:management"
+    depends_on:
+      - autoheal
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 10s
+      start_period: 50s
+      retries: 5
+  notification:
+    depends_on:
+      - mongodb
+      - rabbitmq
+    restart: on-failure
+    build:
+      dockerfile: Dockerfile
+      context: ./notification
+    volumes:
+      - /technical_task/notification/node_modules
+      - /technical_task/notification/dist
+      - ./notification:/technical_task/notification
+    environment:
+      - PORT=5002
+      - MONGO_HOST=mongodb
+      - MONGO_DB=${MONGO_DB}
+      - MONGO_PORT=27017
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_HOST=rabbitmq
+      - QUEUE_USER_NOTIFICATION=${QUEUE_USER_NOTIFICATION}
+    healthcheck:
+      test: curl --fail http://localhost:5002/health || exit 1
+      interval: 10s
+      timeout: 10s
+      start_period: 50s
+      retries: 5
+  user:
+    depends_on:
+      - notification
+    restart: on-failure
+    build:
+      dockerfile: Dockerfile
+      context: ./user
+    volumes:
+      - /technical_task/user/node_modules
+      - /technical_task/user/dist
+      - ./user:/technical_task/user
+    ports:
+      - "5001:5001"
+    environment:
+      - PORT=5001
+      - MONGO_HOST=mongodb
+      - MONGO_DB=${MONGO_DB}
+      - MONGO_PORT=27017
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_HOST=rabbitmq
+      - QUEUE_USER_NOTIFICATION=${QUEUE_USER_NOTIFICATION}
+    healthcheck:
+      test: curl --fail http://localhost:5001/health || exit 1
+      interval: 10s
+      timeout: 10s
+      start_period: 50s
+      retries: 5
